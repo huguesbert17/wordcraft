@@ -340,12 +340,12 @@ fn recent_documents_borrow_fallback_faces() {
         ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
     };
     let mut latin = app();
-    latin.ui.recent.push("/home/ice/report.docx".into());
+    latin.ui.recent.push(RecentDocument { path: "/home/ice/report.docx".into(), last_opened: String::new() });
     frame(&mut latin);
     assert!(latin.canvas.ime_faces.is_empty(), "a Latin file name needs no extra face");
 
     let mut arabic = app();
-    arabic.ui.recent.push("/home/ice/نواقص 2026.docx".into());
+    arabic.ui.recent.push(RecentDocument { path: "/home/ice/نواقص 2026.docx".into(), last_opened: String::new() });
     frame(&mut arabic);
     let letter = 'ن';
     if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
@@ -354,6 +354,15 @@ fn recent_documents_borrow_fallback_faces() {
     let n = arabic.canvas.ime_faces.len();
     frame(&mut arabic);
     assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
+}
+
+#[test]
+fn old_path_only_recent_entries_are_migrated() {
+    let ui = UiState::from_json(br#"{"recent":["/tmp/legacy.docx",{"path":"/tmp/new.docx","lastOpened":"2026-10-30T12:00:00Z"},3]}"#).unwrap();
+    assert_eq!(ui.recent[0], RecentDocument { path: "/tmp/legacy.docx".into(), last_opened: String::new() });
+    assert_eq!(ui.recent[1].path, "/tmp/new.docx");
+    assert_eq!(ui.recent[1].last_opened, "2026-10-30T12:00:00Z");
+    assert_eq!(ui.recent.len(), 2);
 }
 
 /// #3248: the Find box and the Navigation pane's Results list draw the typed query and
@@ -4215,8 +4224,8 @@ fn renaming_a_saved_file_keeps_autosave_and_replaces_its_recent_entry() {
     a.run("file.rename", json!({"name": "Notes v2"})).unwrap();
     assert_eq!(a.session.path.as_deref(), Some(renamed.as_path()));
     assert!(a.autosaves(), "AutoSave still covers the renamed file");
-    assert_eq!(a.ui.recent.first(), Some(&renamed.to_string_lossy().to_string()));
-    assert!(!a.ui.recent.contains(&path.to_string_lossy().to_string()), "{:?}", a.ui.recent);
+    assert_eq!(a.ui.recent.first().map(|r| r.path.as_str()), Some(renamed.to_string_lossy().as_ref()));
+    assert!(!a.ui.recent.iter().any(|r| r.path == path.to_string_lossy()), "{:?}", a.ui.recent);
     a.run("text.insert", json!({"text": "More "})).unwrap();
     a.autosave_tick(now_ms() + 10_000.0);
     assert!(!a.session.dirty, "AutoSave wrote the renamed file");

@@ -3,6 +3,7 @@ use super::{
     file_dialogs, i18n, json, keeps_everything, keytips, now_ms, options, panes, paste_picture, printing, push_recent_font, system_clipboard,
     table_pen, theme, widgets, zotero,
 };
+use crate::RecentDocument;
 
 impl WordApp {
     /// `run` for a command a mouse drag on a table sends: the view stays where it is.
@@ -262,7 +263,7 @@ impl WordApp {
                 self.autosave_path = self.session.path.clone();
             }
             let old = old.to_string_lossy();
-            self.ui.recent.retain(|r| *r != old);
+            self.ui.recent.retain(|r| r.path.as_str() != old.as_ref());
         }
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
@@ -393,10 +394,10 @@ impl WordApp {
             self.handle_request(&req);
         }
         if let Some(p) = self.session.path.as_ref().map(|p| p.to_string_lossy().to_string())
-            && self.ui.recent.first() != Some(&p)
+            && self.ui.recent.first().is_none_or(|r| r.path != p)
         {
-            self.ui.recent.retain(|r| *r != p);
-            self.ui.recent.insert(0, p);
+            self.ui.recent.retain(|r| r.path != p);
+            self.ui.recent.insert(0, RecentDocument { path: p, last_opened: wordcraft_engine::cmd::now_iso() });
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {

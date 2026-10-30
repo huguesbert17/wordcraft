@@ -4,7 +4,7 @@ use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
 
 use crate::theme::{Tokens, medium, regular, semibold};
-use crate::{WordApp, icons};
+use crate::{RecentDocument, WordApp, icons};
 
 /// The side menu: page id, label and icon (#1714).
 const PAGES: [(&str, &str, &str); 11] = [
@@ -512,7 +512,17 @@ fn personal_error_id() -> egui::Id {
 /// stores an open failure in this page's temporary state.
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
+    let mut clear = false;
+    let heading = ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
+    heading.context_menu(|ui| {
+        if ui.button(tl!("Clear Recent")).clicked() {
+            clear = true;
+            ui.close();
+        }
+    });
+    if clear {
+        app.ui.recent.clear();
+    }
     ui.add_space(6.0);
     let error = ui.ctx().data(|d| d.get_temp::<String>(open_error_id())).unwrap_or_default();
     if !error.is_empty() {
@@ -524,22 +534,56 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     }
     let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
     let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
-    let names = shown.iter().map(|p| file_name(p)).collect::<Vec<_>>();
-    for (p, name) in shown.iter().zip(&names) {
-        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
-        // Two documents with the same file name are told apart by their path, as on screen.
-        let spoken = if names.iter().filter(|n| *n == name).count() > 1 { format!("{name}, {p}") } else { name.clone() };
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
-        if resp.hovered() {
-            ui.painter().rect_filled(r, 4.0, t.hover);
+    let names = shown.iter().map(|r| file_name(&r.path)).collect::<Vec<_>>();
+    let today = wordcraft_engine::cmd::now_iso().get(..10).unwrap_or_default().to_string();
+    let today_indices: Vec<usize> =
+        shown.iter().enumerate().filter_map(|(i, r)| (r.last_opened.get(..10) == Some(today.as_str())).then_some(i)).collect();
+    let older_indices: Vec<usize> =
+        shown.iter().enumerate().filter_map(|(i, r)| (r.last_opened.get(..10) != Some(today.as_str())).then_some(i)).collect();
+    for (label, indices) in [("Today", today_indices), ("Older", older_indices)] {
+        if indices.is_empty() {
+            continue;
         }
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, p, regular(11.0), t.text_dim);
-        if resp.clicked() {
-            let failed = open_recent(app, p).err();
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(tl!(label)).font(semibold(13.0)).color(t.text_dim));
+        for i in indices {
+            recent_row(app, ui, &shown[i], &names[i], names.iter().filter(|n| *n == &names[i]).count() > 1, &t);
+        }
+    }
+}
+
+/// Draw one Recent entry and its context menu. The entry is cloned by the caller so removing it
+/// from the persisted list cannot invalidate the rows still being painted this frame.
+fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, duplicate_name: bool, t: &Tokens) {
+    let path = entry.path.clone();
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
+    // Two documents with the same file name are told apart by their path, as on screen.
+    let spoken = if duplicate_name { format!("{name}, {path}") } else { name.to_string() };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 4.0, t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
+    ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, name, medium(13.0), t.text);
+    ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &path, regular(11.0), t.text_dim);
+    if resp.clicked() {
+        let failed = open_recent(app, &path).err();
+        ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
+    }
+    let mut remove = false;
+    resp.context_menu(|ui| {
+        if ui.button(tl!("Open")).clicked() {
+            let failed = open_recent(app, &path).err();
             ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
+            ui.close();
         }
+        if ui.button(tl!("Remove from Recent")).clicked() {
+            remove = true;
+            ui.close();
+        }
+    });
+    if remove {
+        app.ui.recent.retain(|r| r.path != path);
     }
 }
 
