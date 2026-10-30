@@ -491,12 +491,15 @@ fn draw_rows(ui: &mut Ui, options: RowDrawOptions<'_, '_>) -> Option<String> {
     let RowDrawOptions { width, current, range, row, highlight, preview, row_height: row_h } = options;
     let mut out = None;
     let fill = Tokens::get(ui.ctx()).checked;
-    ui.set_min_width(width + 60.0);
+    // Font previews need room for the family name at its normal size; ordinary combos retain
+    // their field width.
+    let popup_width = if preview.is_some() { width.max(254.0) } else { width };
+    ui.set_min_width(popup_width);
     for k in range {
         let it = match row(k) {
             Some(Row::Item(it)) => it,
             Some(Row::Heading(h)) => {
-                heading_row(ui, h, vec2(width + 60.0, row_h), k > 0);
+                heading_row(ui, h, vec2(popup_width, row_h), k > 0);
                 continue;
             }
             None => continue,
