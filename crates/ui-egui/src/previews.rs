@@ -227,7 +227,8 @@ impl Previews {
         Box::new(|ui: &mut Ui, name: &str| {
             let key = format!("font:{name}");
             let tex: Option<TextureHandle> = ui.ctx().data(|d| d.get_temp::<TextureHandle>(egui::Id::unique(&key)));
-            let (r, resp) = ui.allocate_exact_size(vec2(260.0, crate::widgets::COMBO_PREVIEW_ROW_H), Sense::click());
+            let row_width = if ui.is_sizing_pass() { crate::widgets::COMBO_PREVIEW_W } else { ui.available_width() };
+            let (r, resp) = ui.allocate_exact_size(vec2(row_width, crate::widgets::COMBO_PREVIEW_ROW_H), Sense::click());
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
             let t = Tokens::get(ui.ctx());
             if resp.hovered() {
