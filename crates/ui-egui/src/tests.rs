@@ -388,12 +388,12 @@ fn recent_documents_borrow_fallback_faces() {
         ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
     };
     let mut latin = app();
-    latin.ui.recent.push(RecentDocument { path: "/home/ice/report.docx".into(), last_opened: String::new() });
+    latin.ui.recent.push(RecentDocument { path: "/home/ice/report.docx".into(), last_opened: String::new(), modified: String::new() });
     frame(&mut latin);
     assert!(latin.canvas.ime_faces.is_empty(), "a Latin file name needs no extra face");
 
     let mut arabic = app();
-    arabic.ui.recent.push(RecentDocument { path: "/home/ice/نواقص 2026.docx".into(), last_opened: String::new() });
+    arabic.ui.recent.push(RecentDocument { path: "/home/ice/نواقص 2026.docx".into(), last_opened: String::new(), modified: String::new() });
     frame(&mut arabic);
     let letter = 'ن';
     if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
@@ -407,7 +407,7 @@ fn recent_documents_borrow_fallback_faces() {
 #[test]
 fn old_path_only_recent_entries_are_migrated() {
     let ui = UiState::from_json(br#"{"recent":["/tmp/legacy.docx",{"path":"/tmp/new.docx","lastOpened":"2026-10-30T12:00:00Z"},3]}"#).unwrap();
-    assert_eq!(ui.recent[0], RecentDocument { path: "/tmp/legacy.docx".into(), last_opened: String::new() });
+    assert_eq!(ui.recent[0], RecentDocument { path: "/tmp/legacy.docx".into(), last_opened: String::new(), modified: String::new() });
     assert_eq!(ui.recent[1].path, "/tmp/new.docx");
     assert_eq!(ui.recent[1].last_opened, "2026-10-30T12:00:00Z");
     assert_eq!(ui.recent.len(), 2);
@@ -2779,12 +2779,16 @@ fn open_opens_beside_unsaved_work() {
     assert_eq!(prompt(&a), None);
     assert!(body_text(&a).contains("Signed contract"));
     assert_eq!(a.session.path.as_deref(), Some(path.as_path()));
+    assert_eq!(a.ui.recent.len(), 1);
+    assert!(!a.ui.recent[0].modified.is_empty(), "explicit open records file metadata");
+    let first_opened = a.ui.recent[0].last_opened.clone();
     let opened = a.session.document_id();
     a.run("view.switchWindows", json!({"id": first})).unwrap();
     assert!(body_text(&a).contains(UNSAVED) && a.session.dirty);
     a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
     assert_eq!(a.session.document_id(), opened, "an open file is shown, not opened twice");
     assert_eq!(a.session.documents().len(), 2);
+    assert!(a.ui.recent[0].last_opened >= first_opened, "reopening refreshes the Recent date");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

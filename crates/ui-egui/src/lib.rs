@@ -126,13 +126,14 @@ struct AwaitingSave {
     rev: u64,
 }
 
-/// A document in File's Recent list. `last_opened` is an ISO-8601 UTC timestamp; an empty value
-/// means it came from the pre-2716 path-only format and is treated as older than dated entries.
+/// A document in File's Recent list. `last_opened` and `modified` are ISO-8601 UTC timestamps;
+/// empty values are legacy or unavailable metadata and are never looked up while the list draws.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentDocument {
     pub path: String,
     pub last_opened: String,
+    pub modified: String,
 }
 
 /// UI state that persists between runs (and that agents can read and set).
@@ -442,11 +443,12 @@ fn lenient_recent_documents<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Ve
         .into_iter()
         .flatten()
         .filter_map(|entry| {
-            entry.as_str().map(|path| RecentDocument { path: path.to_string(), last_opened: String::new() }).or_else(|| {
+            entry.as_str().map(|path| RecentDocument { path: path.to_string(), last_opened: String::new(), modified: String::new() }).or_else(|| {
                 let object = entry.as_object()?;
                 let path = object.get("path")?.as_str()?.to_string();
                 let last_opened = object.get("lastOpened").and_then(Value::as_str).unwrap_or_default().to_string();
-                Some(RecentDocument { path, last_opened })
+                let modified = object.get("modified").and_then(Value::as_str).unwrap_or_default().to_string();
+                Some(RecentDocument { path, last_opened, modified })
             })
         })
         .collect())

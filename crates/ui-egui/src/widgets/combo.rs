@@ -412,6 +412,8 @@ fn combo_impl(ui: &mut Ui, options: ComboOptions<'_>) -> Option<String> {
 
 /// Height of a row drawn by a combo's preview closure (`Previews::font_preview_fn`'s entries).
 pub const COMBO_PREVIEW_ROW_H: f32 = 24.0;
+/// Keep font preview menus at the width used by the font picker.
+pub const COMBO_PREVIEW_W: f32 = 254.0;
 
 /// A combo's scrolling list. Only the rows in view are built: the font menu lists every installed
 /// family and each preview loads that font, so building all rows loaded every font on the system
@@ -494,7 +496,7 @@ fn draw_rows(ui: &mut Ui, options: RowDrawOptions<'_, '_>) -> Option<String> {
     let fill = Tokens::get(ui.ctx()).checked;
     // Font previews need room for the family name at its normal size; ordinary combos retain
     // their field width.
-    let popup_width = if preview.is_some() { width.max(254.0) } else { width };
+    let popup_width = if preview.is_some() { COMBO_PREVIEW_W } else { width };
     ui.set_min_width(popup_width);
     for k in range {
         let it = match row(k) {

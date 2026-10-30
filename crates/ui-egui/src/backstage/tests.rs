@@ -552,9 +552,9 @@ fn templates_and_recent_documents_are_named_buttons() {
     let path = |folder: &str, file: &str| dir.join(folder).join(file).to_string_lossy().into_owned();
     let (spring, autumn) = (path("spring", "Report.docx"), path("autumn", "Report.docx"));
     a.ui.recent = vec![
-        RecentDocument { path: path("notes", "Quarterly notes.docx"), last_opened: String::new() },
-        RecentDocument { path: spring.clone(), last_opened: String::new() },
-        RecentDocument { path: autumn.clone(), last_opened: String::new() },
+        RecentDocument { path: path("notes", "Quarterly notes.docx"), last_opened: String::new(), modified: String::new() },
+        RecentDocument { path: spring.clone(), last_opened: String::new(), modified: String::new() },
+        RecentDocument { path: autumn.clone(), last_opened: String::new(), modified: String::new() },
     ];
     a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
     let mut h = a11y_harness(a);
@@ -578,9 +578,9 @@ fn templates_and_recent_documents_are_named_buttons() {
 fn recent_documents_are_grouped_by_day() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
     a.ui.recent = vec![
-        RecentDocument { path: "/tmp/today.docx".into(), last_opened: wordcraft_engine::cmd::now_iso() },
-        RecentDocument { path: "/tmp/legacy.docx".into(), last_opened: String::new() },
-        RecentDocument { path: "/tmp/older.docx".into(), last_opened: "2000-01-01T00:00:00Z".into() },
+        RecentDocument { path: "/tmp/today.docx".into(), last_opened: wordcraft_engine::cmd::now_iso(), modified: String::new() },
+        RecentDocument { path: "/tmp/legacy.docx".into(), last_opened: String::new(), modified: String::new() },
+        RecentDocument { path: "/tmp/older.docx".into(), last_opened: "2000-01-01T00:00:00Z".into(), modified: String::new() },
     ];
     a.ui.backstage = true;
     a.ui.backstage_page = "home".into();
@@ -596,6 +596,23 @@ fn recent_documents_are_grouped_by_day() {
     h.get_by_label("Clear Recent").click();
     h.run_steps(2);
     assert!(h.state().ui.recent.is_empty(), "the Recent heading context menu clears the persisted list");
+}
+
+#[test]
+fn recent_actions_use_ui_commands() {
+    let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+    app.ui.recent = vec![RecentDocument { path: "/tmp/remove.docx".into(), last_opened: String::new(), modified: String::new() }];
+    assert_eq!(app.run("ui.recentRemove", json!({"path": "/tmp/remove.docx"})).unwrap(), json!({"removed": true}));
+    assert!(app.ui.recent.is_empty());
+    app.ui.recent.push(RecentDocument { path: "/tmp/clear.docx".into(), last_opened: String::new(), modified: String::new() });
+    assert_eq!(app.run("ui.recentClear", json!({})).unwrap(), json!({"cleared": true}));
+    assert!(app.ui.recent.is_empty());
+}
+
+#[test]
+fn recent_actions_work_without_a_document() {
+    assert!(crate::works_without_document("ui.recentClear"));
+    assert!(crate::works_without_document("ui.recentRemove"));
 }
 
 /// Clicking the back arrow closes the File page and gives the keyboard back to the page,

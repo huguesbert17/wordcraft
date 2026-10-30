@@ -268,7 +268,7 @@ impl WordApp {
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
         }
-        self.after_command(id);
+        self.after_command(id, r.is_ok());
         if let Err(e) = &r {
             self.status(e.clone());
         }
@@ -346,7 +346,7 @@ impl WordApp {
         r
     }
 
-    fn after_command(&mut self, id: &str) {
+    fn after_command(&mut self, id: &str, succeeded: bool) {
         options::sync(self);
         self.canvas.caret_visible_since = now_ms();
         if id == "view.outline" {
@@ -393,11 +393,25 @@ impl WordApp {
         for req in std::mem::take(&mut self.session.ui_requests) {
             self.handle_request(&req);
         }
-        if let Some(p) = self.session.path.as_ref().map(|p| p.to_string_lossy().to_string())
-            && self.ui.recent.first().is_none_or(|r| r.path != p)
+        // Recent metadata is collected only after an explicit, successful file operation. In
+        // particular, drawing File's Recent page must never probe a persisted path: it may point
+        // to a network provider that blocks or prompts for credentials.
+        if succeeded
+            && matches!(id, "file.open" | "file.save" | "file.saveAs" | "file.rename")
+            && let Some(path) = self.session.path.as_ref()
         {
+            let p = path.to_string_lossy().to_string();
+            let modified = recent_modified_date(path);
+            let opened = self.ui.recent.iter().find(|r| r.path == p).map(|r| r.last_opened.clone()).unwrap_or_default();
             self.ui.recent.retain(|r| r.path != p);
-            self.ui.recent.insert(0, RecentDocument { path: p, last_opened: wordcraft_engine::cmd::now_iso() });
+            self.ui.recent.insert(
+                0,
+                RecentDocument {
+                    path: p,
+                    last_opened: if id == "file.open" || opened.is_empty() { wordcraft_engine::cmd::now_iso() } else { opened },
+                    modified,
+                },
+            );
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {
@@ -567,6 +581,18 @@ impl WordApp {
                 self.canvas.context_menu_from_keys = true;
                 self.canvas.want_focus = true;
                 json!({"pending": "contextMenu"})
+            }
+            "ui.recentClear" => {
+                self.ui.recent.clear();
+                json!({"cleared": true})
+            }
+            "ui.recentRemove" => {
+                let Some(path) = s("path") else {
+                    return Some(Err("`path` is required".into()));
+                };
+                let before = self.ui.recent.len();
+                self.ui.recent.retain(|entry| entry.path != path);
+                json!({"removed": before != self.ui.recent.len()})
             }
             "ui.paneDock" => return Some(panes::dock_command(self, p)),
             "ui.collapseRibbon" => {
@@ -885,6 +911,28 @@ impl WordApp {
     }
 }
 
+/// Read a file's modification timestamp as part of an explicit file operation. This is kept out
+/// of the Recent renderer so network-backed history entries cannot block passive UI drawing.
+fn recent_modified_date(path: &std::path::Path) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(secs) = std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs())
+        else {
+            return String::new();
+        };
+        wordcraft_engine::cmd::iso_from_unix_secs(secs).get(..10).unwrap_or_default().to_string()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        String::new()
+    }
+}
+
 /// The dialog a user-run command opens when it lacks the input it needs (scripts and agents get
 /// the command's own error or default instead): Select Recipients and Edit Recipient List without
 /// data, Insert Merge Field without a field, Find Recipient without text, the If and Skip
@@ -1038,6 +1086,8 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.discord"
             | "ui.caretAnimation"
             | "ui.startScreen"
+            | "ui.recentClear"
+            | "ui.recentRemove"
             | "ui.checkForUpdates"
     ) || id.starts_with("help.")
 }

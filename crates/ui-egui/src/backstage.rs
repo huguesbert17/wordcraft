@@ -512,17 +512,13 @@ fn personal_error_id() -> egui::Id {
 /// stores an open failure in this page's temporary state.
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    let mut clear = false;
     let heading = ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
     heading.context_menu(|ui| {
         if ui.button(tl!("Clear Recent")).clicked() {
-            clear = true;
+            let _ = app.run("ui.recentClear", json!({}));
             ui.close();
         }
     });
-    if clear {
-        app.ui.recent.clear();
-    }
     ui.add_space(6.0);
     let error = ui.ctx().data(|d| d.get_temp::<String>(open_error_id())).unwrap_or_default();
     if !error.is_empty() {
@@ -535,11 +531,17 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
     let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
     let names = shown.iter().map(|r| file_name(&r.path)).collect::<Vec<_>>();
-    let today = wordcraft_engine::cmd::now_iso().get(..10).unwrap_or_default().to_string();
-    let today_indices: Vec<usize> =
-        shown.iter().enumerate().filter_map(|(i, r)| (r.last_opened.get(..10) == Some(today.as_str())).then_some(i)).collect();
-    let older_indices: Vec<usize> =
-        shown.iter().enumerate().filter_map(|(i, r)| (r.last_opened.get(..10) != Some(today.as_str())).then_some(i)).collect();
+    let today = crate::local_time::local_calendar_date(&wordcraft_engine::cmd::now_iso()).unwrap_or_default();
+    let today_indices: Vec<usize> = shown
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| (crate::local_time::local_calendar_date(&r.last_opened).as_deref() == Some(today.as_str())).then_some(i))
+        .collect();
+    let older_indices: Vec<usize> = shown
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| (crate::local_time::local_calendar_date(&r.last_opened).as_deref() != Some(today.as_str())).then_some(i))
+        .collect();
     for (label, indices) in [("Today", today_indices), ("Older", older_indices)] {
         if indices.is_empty() {
             continue;
@@ -556,7 +558,7 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
 /// from the persisted list cannot invalidate the rows still being painted this frame.
 fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, duplicate_name: bool, t: &Tokens) {
     let path = entry.path.clone();
-    let modified = modified_date(&path).unwrap_or_else(|| tl!("Unknown").to_string());
+    let modified = if entry.modified.is_empty() { tl!("Unknown").to_string() } else { entry.modified.clone() };
     let modified_label = format!("{} {modified}", tl!("Date modified:"));
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 56.0), Sense::click());
     // Two documents with the same file name are told apart by their path, as on screen.
@@ -595,23 +597,7 @@ fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str
         }
     });
     if remove {
-        app.ui.recent.retain(|r| r.path != path);
-    }
-}
-
-/// The filesystem modification date shown under a Recent entry. The web build has no local file
-/// metadata, so it leaves the row's value as Unknown rather than inventing a date.
-fn modified_date(path: &str) -> Option<String> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-        let secs = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
-        wordcraft_engine::cmd::iso_from_unix_secs(secs).get(..10).map(str::to_string)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = path;
-        None
+        let _ = app.run("ui.recentRemove", json!({"path": path}));
     }
 }
 
