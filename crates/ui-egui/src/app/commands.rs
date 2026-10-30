@@ -263,12 +263,21 @@ impl WordApp {
                 self.autosave_path = self.session.path.clone();
             }
             let old = old.to_string_lossy();
-            self.ui.recent.retain(|r| r.path.as_str() != old.as_ref());
+            let new = self.session.path.as_ref().map(|path| path.to_string_lossy().to_string());
+            if let Some(new) = new
+                && let Some(entry) = self.ui.recent.iter_mut().find(|entry| entry.path == old)
+            {
+                // Renaming does not constitute a new open: retain the existing record and its
+                // timestamps while changing only the persisted path.
+                entry.path = new;
+            } else {
+                self.ui.recent.retain(|entry| entry.path != old);
+            }
         }
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
         }
-        self.after_command(id, r.is_ok());
+        self.after_command(id, &r);
         if let Err(e) = &r {
             self.status(e.clone());
         }
@@ -346,7 +355,8 @@ impl WordApp {
         r
     }
 
-    fn after_command(&mut self, id: &str, succeeded: bool) {
+    fn after_command(&mut self, id: &str, result: &Result<Value, String>) {
+        let succeeded = result.is_ok();
         options::sync(self);
         self.canvas.caret_visible_since = now_ms();
         if id == "view.outline" {
@@ -396,7 +406,18 @@ impl WordApp {
         // Recent metadata is collected only after an explicit, successful file operation. In
         // particular, drawing File's Recent page must never probe a persisted path: it may point
         // to a network provider that blocks or prompts for credentials.
-        if succeeded
+        let completed_file_operation = match id {
+            // A successful command with no path only opened the file picker.
+            "file.open" => result.as_ref().ok().and_then(|value| value.get("path")).and_then(Value::as_str).is_some(),
+            // Native Save As reports `saved`; a web download reports `downloaded`. A pending
+            // browser save is not complete yet and must not refresh Recent.
+            "file.save" | "file.saveAs" => result.as_ref().ok().is_some_and(|value| {
+                value.get("pendingSave").is_none()
+                    && (value.get("saved").and_then(Value::as_bool) == Some(true) || value.get("downloaded").and_then(Value::as_str).is_some())
+            }),
+            _ => succeeded,
+        };
+        if completed_file_operation
             && matches!(id, "file.open" | "file.save" | "file.saveAs" | "file.rename")
             && let Some(path) = self.session.path.as_ref()
         {
@@ -924,7 +945,7 @@ fn recent_modified_date(path: &std::path::Path) -> String {
         else {
             return String::new();
         };
-        wordcraft_engine::cmd::iso_from_unix_secs(secs).get(..10).unwrap_or_default().to_string()
+        wordcraft_engine::cmd::iso_from_unix_secs(secs)
     }
     #[cfg(target_arch = "wasm32")]
     {

@@ -599,7 +599,7 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
 /// from the persisted list cannot invalidate the rows still being painted this frame.
 fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, duplicate_name: bool, t: &Tokens) {
     let path = entry.path.clone();
-    let modified = if entry.modified.is_empty() { tl!("Unknown").to_string() } else { entry.modified.clone() };
+    let modified = crate::local_time::local_calendar_date(&entry.modified).unwrap_or_else(|| tl!("Unknown").to_string());
     let modified_label = format!("{} {modified}", tl!("Date modified:"));
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 56.0), Sense::click());
     // Two documents with the same file name are told apart by their path, as on screen.
