@@ -2827,6 +2827,7 @@ fn open_opens_beside_unsaved_work() {
     assert_eq!(a.session.path.as_deref(), Some(path.as_path()));
     assert_eq!(a.ui.recent.len(), 1);
     assert!(!a.ui.recent[0].modified.is_empty(), "explicit open records file metadata");
+    assert!(a.ui.recent[0].modified.contains('T'), "Recent keeps the full modification timestamp");
     let first_opened = a.ui.recent[0].last_opened.clone();
     let opened = a.session.document_id();
     a.run("view.switchWindows", json!({"id": first})).unwrap();
@@ -2844,6 +2845,7 @@ fn open_without_a_path_only_shows_the_picker() {
     let mut a = typed();
     a.run("file.open", json!({})).unwrap();
     assert_eq!(prompt(&a), None);
+    assert!(a.ui.recent.is_empty(), "opening the picker does not add a Recent entry");
     assert!(body_text(&a).contains(UNSAVED));
 }
 
@@ -4373,10 +4375,12 @@ fn renaming_a_saved_file_keeps_autosave_and_replaces_its_recent_entry() {
     let mut a = typed();
     a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
     assert!(a.autosaves());
+    let opened = a.ui.recent[0].last_opened.clone();
     a.run("file.rename", json!({"name": "Notes v2"})).unwrap();
     assert_eq!(a.session.path.as_deref(), Some(renamed.as_path()));
     assert!(a.autosaves(), "AutoSave still covers the renamed file");
     assert_eq!(a.ui.recent.first().map(|r| r.path.as_str()), Some(renamed.to_string_lossy().as_ref()));
+    assert_eq!(a.ui.recent.first().map(|r| r.last_opened.as_str()), Some(opened.as_str()), "rename preserves the Recent timestamp");
     assert!(!a.ui.recent.iter().any(|r| r.path == path.to_string_lossy()), "{:?}", a.ui.recent);
     a.run("text.insert", json!({"text": "More "})).unwrap();
     a.autosave_tick(now_ms() + 10_000.0);

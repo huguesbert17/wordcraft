@@ -34,7 +34,14 @@ pub(crate) fn comment_time(c: &wordcraft_doc::Comment) -> String {
 pub(crate) fn local_calendar_date(iso: &str) -> Option<String> {
     let t = parse(iso)?;
     let utc = t.secs - i64::from(t.zone.unwrap_or(0)) * 60;
-    let local = if t.timed { utc + i64::from(offset_minutes(utc)) * 60 } else { utc };
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(time) = chrono::DateTime::<chrono::Utc>::from_timestamp(utc, 0) {
+        let date = if t.timed { time.with_timezone(&chrono::Local).date_naive() } else { time.date_naive() };
+        return Some(date.format("%Y-%m-%d").to_string());
+    }
+    // Keep the browser implementation, and provide a fallback for timestamps outside chrono's
+    // representable range on native targets.
+    let local = utc + i64::from(offset_minutes(utc)) * 60;
     let (y, m, d) = wordcraft_engine::cmd::civil_from_days(local.div_euclid(86_400));
     Some(format!("{y:04}-{m:02}-{d:02}"))
 }
