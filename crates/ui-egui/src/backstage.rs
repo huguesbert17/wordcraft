@@ -597,16 +597,28 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
 /// from the persisted list cannot invalidate the rows still being painted this frame.
 fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, duplicate_name: bool, t: &Tokens) {
     let path = entry.path.clone();
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
+    let modified = modified_date(&path).unwrap_or_else(|| tl!("Unknown").to_string());
+    let modified_label = format!("{} {modified}", tl!("Date modified:"));
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 56.0), Sense::click());
     // Two documents with the same file name are told apart by their path, as on screen.
     let spoken = if duplicate_name { format!("{name}, {path}") } else { name.to_string() };
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
     if resp.hovered() {
         ui.painter().rect_filled(r, 4.0, t.hover);
     }
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
+    if let Some(texture) = wordcraft_logo(ui.ctx()) {
+        ui.painter().image(
+            texture.id(),
+            Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(24.0, 24.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
+    }
     ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, name, medium(13.0), t.text);
     ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &path, regular(11.0), t.text_dim);
+    ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 45.0), Align2::LEFT_CENTER, modified_label, regular(11.0), t.text_dim);
     if resp.clicked() {
         let failed = open_recent(app, &path).err();
         ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
@@ -626,6 +638,36 @@ fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str
     if remove {
         app.ui.recent.retain(|r| r.path != path);
     }
+}
+
+/// The filesystem modification date shown under a Recent entry. The web build has no local file
+/// metadata, so it leaves the row's value as Unknown rather than inventing a date.
+fn modified_date(path: &str) -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let secs = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+        wordcraft_engine::cmd::iso_from_unix_secs(secs).get(..10).map(str::to_string)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// Load the existing attributed WordCraft application icon once per egui context.
+fn wordcraft_logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let id = egui::Id::unique("backstage_wordcraft_logo");
+    if let Some(texture) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return Some(texture);
+    }
+    let bytes = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.wordcraft.png");
+    let image = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let color = egui::ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], image.as_raw());
+    let texture = ctx.load_texture("backstage_wordcraft_logo", color, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, texture.clone()));
+    Some(texture)
 }
 
 /// Stable storage id for the Recent list's open error.
