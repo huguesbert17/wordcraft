@@ -561,10 +561,11 @@ fn templates_and_recent_documents_are_named_buttons() {
     for (label, _) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
         assert!(h.query_by_role_and_label(Role::Button, label).is_some(), "{label} is a named button");
     }
-    let unique = format!("Quarterly notes.docx, {}, Date modified: 2026-10-30", path("notes", "Quarterly notes.docx"));
+    let edited = crate::local_time::local_display_date("2026-10-30").unwrap_or_else(|| "Unknown".into());
+    let unique = format!("Quarterly notes.docx, {}, Last opened: Unknown, Last edited: {edited}", path("notes", "Quarterly notes.docx"));
     assert!(h.query_by_role_and_label(Role::Button, &unique).is_some(), "a unique recent filename includes its path and date: {unique}");
     for p in [&spring, &autumn] {
-        let label = format!("Report.docx, {p}, Date modified: 2026-10-30");
+        let label = format!("Report.docx, {p}, Last opened: Unknown, Last edited: {edited}");
         assert!(h.query_by_role_and_label(Role::Button, &label).is_some(), "a repeated file name is told apart by its path: {label}");
     }
     h.get_by_role_and_label(Role::Button, "Letter").click();
@@ -573,10 +574,9 @@ fn templates_and_recent_documents_are_named_buttons() {
     assert!(!h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).is_empty(), "with the template's text");
 }
 
-/// #2716: Recent is split by the stored last-opened day, while legacy path-only entries remain
-/// usable in the Older group.
+/// #2716: Recent documents share one table, including legacy path-only entries with unknown dates.
 #[test]
-fn recent_documents_are_grouped_by_day() {
+fn recent_documents_are_listed_in_one_table() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
     a.ui.recent = vec![
         RecentDocument { path: "/tmp/today.docx".into(), last_opened: wordcraft_engine::cmd::now_iso(), modified: String::new() },
@@ -586,17 +586,35 @@ fn recent_documents_are_grouped_by_day() {
     a.ui.backstage = true;
     a.ui.backstage_page = "home".into();
     let mut h = a11y_harness(a);
-    assert!(h.query_by_label("Today").is_some());
-    assert!(h.query_by_label("Older").is_some());
-    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "today.docx").is_some());
-    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "legacy.docx").is_some());
-    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "older.docx").is_some());
+    assert!(h.query_by_label("Today").is_none());
+    assert!(h.query_by_label("Older").is_none());
+    assert!(h.query_by_label("Name").is_some());
+    assert!(h.query_all_by_label_contains("today.docx").next().is_some());
+    assert!(h.query_all_by_label_contains("legacy.docx").next().is_some());
+    assert!(h.query_all_by_label_contains("older.docx").next().is_some());
     h.get_by_label("Recent").click_secondary();
     h.run_steps(2);
     assert!(h.query_by_label("Clear Recent").is_some());
     h.get_by_label("Clear Recent").click();
     h.run_steps(2);
     assert!(h.state().ui.recent.is_empty(), "the Recent heading context menu clears the persisted list");
+}
+
+#[test]
+fn recent_location_shortens_common_folders_across_path_styles() {
+    assert_eq!(super::recent_location("/Users/alice/Downloads/report.docx"), "Downloads");
+    assert_eq!(super::recent_location(r"C:\Users\Alice\Documents\report.docx"), "Documents");
+    assert_eq!(super::recent_location("/home/alice/projects/report.docx"), "projects");
+}
+
+#[test]
+fn empty_recent_list_explains_how_to_open_a_document() {
+    let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+    app.ui.backstage = true;
+    app.ui.backstage_page = "home".into();
+    let h = a11y_harness(app);
+    assert!(h.query_by_label("You haven't opened any documents recently. Click Open to browse for a document.").is_some());
+    assert!(h.query_by_label("Name").is_none());
 }
 
 #[test]
