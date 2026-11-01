@@ -615,6 +615,18 @@ impl WordApp {
                 self.ui.recent.retain(|entry| entry.path != path);
                 json!({"removed": before != self.ui.recent.len()})
             }
+            "ui.recentShowInFolder" => {
+                let Some(path) = s("path") else {
+                    return Some(Err("`path` is required".into()));
+                };
+                let Some(show_in_folder) = self.services.show_in_folder.as_ref() else {
+                    return Some(Err("showing files in a folder is unavailable here".into()));
+                };
+                if let Err(error) = show_in_folder(std::path::Path::new(path)) {
+                    return Some(Err(error));
+                }
+                json!({"shown": true})
+            }
             "ui.paneDock" => return Some(panes::dock_command(self, p)),
             "ui.collapseRibbon" => {
                 self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
@@ -1111,6 +1123,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.startScreen"
             | "ui.recentClear"
             | "ui.recentRemove"
+            | "ui.recentShowInFolder"
             | "ui.checkForUpdates"
     ) || id.starts_with("help.")
 }
