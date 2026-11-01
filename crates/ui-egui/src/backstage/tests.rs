@@ -552,18 +552,19 @@ fn templates_and_recent_documents_are_named_buttons() {
     let path = |folder: &str, file: &str| dir.join(folder).join(file).to_string_lossy().into_owned();
     let (spring, autumn) = (path("spring", "Report.docx"), path("autumn", "Report.docx"));
     a.ui.recent = vec![
-        RecentDocument { path: path("notes", "Quarterly notes.docx"), last_opened: String::new(), modified: String::new() },
-        RecentDocument { path: spring.clone(), last_opened: String::new(), modified: String::new() },
-        RecentDocument { path: autumn.clone(), last_opened: String::new(), modified: String::new() },
+        RecentDocument { path: path("notes", "Quarterly notes.docx"), last_opened: String::new(), modified: "2026-10-30".into() },
+        RecentDocument { path: spring.clone(), last_opened: String::new(), modified: "2026-10-30".into() },
+        RecentDocument { path: autumn.clone(), last_opened: String::new(), modified: "2026-10-30".into() },
     ];
     a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
     let mut h = a11y_harness(a);
     for (label, _) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
         assert!(h.query_by_role_and_label(Role::Button, label).is_some(), "{label} is a named button");
     }
-    assert!(h.query_by_role_and_label(Role::Button, "Quarterly notes.docx").is_some(), "a recent document is a named button");
+    let unique = format!("Quarterly notes.docx, {}, Date modified: 2026-10-30", path("notes", "Quarterly notes.docx"));
+    assert!(h.query_by_role_and_label(Role::Button, &unique).is_some(), "a unique recent filename includes its path and date: {unique}");
     for p in [&spring, &autumn] {
-        let label = format!("Report.docx, {p}");
+        let label = format!("Report.docx, {p}, Date modified: 2026-10-30");
         assert!(h.query_by_role_and_label(Role::Button, &label).is_some(), "a repeated file name is told apart by its path: {label}");
     }
     h.get_by_role_and_label(Role::Button, "Letter").click();
@@ -610,9 +611,54 @@ fn recent_actions_use_ui_commands() {
 }
 
 #[test]
+fn recent_show_in_folder_uses_the_host_service() {
+    let shown = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let seen = shown.clone();
+    let mut app = WordApp::new(
+        wordcraft_engine::Session::new(wordcraft_doc::Document::new()),
+        Services {
+            show_in_folder: Some(Box::new(move |path| {
+                *seen.borrow_mut() = Some(path.to_path_buf());
+                Ok(())
+            })),
+            ..Default::default()
+        },
+    );
+    assert_eq!(app.run("ui.recentShowInFolder", json!({"path": "/tmp/report.docx"})).unwrap(), json!({"shown": true}));
+    assert_eq!(shown.borrow().as_deref(), Some(std::path::Path::new("/tmp/report.docx")));
+}
+
+#[test]
+fn recent_context_menu_shows_in_folder() {
+    let shown = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let seen = shown.clone();
+    let mut app = WordApp::new(
+        wordcraft_engine::Session::new(wordcraft_doc::Document::new()),
+        Services {
+            show_in_folder: Some(Box::new(move |path| {
+                *seen.borrow_mut() = Some(path.to_path_buf());
+                Ok(())
+            })),
+            ..Default::default()
+        },
+    );
+    app.ui.recent = vec![RecentDocument { path: "/tmp/report.docx".into(), last_opened: wordcraft_engine::cmd::now_iso(), modified: String::new() }];
+    app.ui.backstage = true;
+    app.ui.backstage_page = "home".into();
+    let mut h = a11y_harness(app);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "report.docx, /tmp/report.docx, Date modified: Unknown").click_secondary();
+    h.run_steps(2);
+    assert!(h.query_by_label("Show in folder").is_some());
+    h.get_by_label("Show in folder").click();
+    h.run_steps(2);
+    assert_eq!(shown.borrow().as_deref(), Some(std::path::Path::new("/tmp/report.docx")));
+}
+
+#[test]
 fn recent_actions_work_without_a_document() {
     assert!(crate::works_without_document("ui.recentClear"));
     assert!(crate::works_without_document("ui.recentRemove"));
+    assert!(crate::works_without_document("ui.recentShowInFolder"));
 }
 
 /// Clicking the back arrow closes the File page and gives the keyboard back to the page,

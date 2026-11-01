@@ -597,13 +597,14 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
 
 /// Draw one Recent entry and its context menu. The entry is cloned by the caller so removing it
 /// from the persisted list cannot invalidate the rows still being painted this frame.
-fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, duplicate_name: bool, t: &Tokens) {
+fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str, _duplicate_name: bool, t: &Tokens) {
     let path = entry.path.clone();
     let modified = crate::local_time::local_calendar_date(&entry.modified).unwrap_or_else(|| tl!("Unknown").to_string());
     let modified_label = format!("{} {modified}", tl!("Date modified:"));
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 56.0), Sense::click());
-    // Two documents with the same file name are told apart by their path, as on screen.
-    let spoken = if duplicate_name { format!("{name}, {path}") } else { name.to_string() };
+    // Include everything painted in the row so screen readers can distinguish locations and hear
+    // the modification date even when the filename is unique.
+    let spoken = format!("{name}, {path}, {modified_label}");
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
     if resp.hovered() {
         ui.painter().rect_filled(r, 4.0, t.hover);
@@ -630,6 +631,12 @@ fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str
         if ui.button(tl!("Open")).clicked() {
             let failed = open_recent(app, &path).err();
             ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
+            ui.close();
+        }
+        if app.services.show_in_folder.is_some() && ui.button(tl!("Show in folder")).clicked() {
+            if let Err(error) = app.run("ui.recentShowInFolder", json!({"path": path})) {
+                app.status(error);
+            }
             ui.close();
         }
         if ui.button(tl!("Remove from Recent")).clicked() {
