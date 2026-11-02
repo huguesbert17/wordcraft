@@ -681,6 +681,7 @@ fn recent_row(app: &mut WordApp, ui: &mut Ui, entry: &RecentDocument, name: &str
             }
             ui.close();
         }
+        ui.separator();
         if ui.button(tl!("Remove from Recent")).clicked() {
             remove = true;
             ui.close();
