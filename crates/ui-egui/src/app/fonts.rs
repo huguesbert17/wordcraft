@@ -95,12 +95,11 @@ impl WordApp {
     /// interface faces. Borrow document fallback faces for characters in non-Latin scripts (#2067),
     /// as the caption and comments do.
     pub(super) fn ensure_recent_fonts(&mut self) {
-        let recent_paths: Vec<String> = self.ui.recent.iter().map(|r| r.path.clone()).collect();
-        if self.recent_fonts_for == recent_paths {
+        if self.recent_fonts_for.as_slice() == self.ui.recent.as_slice() {
             return;
         }
-        self.recent_fonts_for = recent_paths;
-        for p in &self.recent_fonts_for {
+        self.recent_fonts_for = self.ui.recent.clone();
+        for p in &self.ui.recent {
             if p.chars().any(wordcraft_fonts::is_cjk) {
                 self.want_system_cjk = true;
             }
